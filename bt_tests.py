@@ -12,12 +12,91 @@ from algorithm import get_BTS, dict_BTS_9, dict_BTS_10
 from scipy.stats import pearsonr
 from scipy import signal
 
+temperature_flags_list = ["PFMFT_BT11_BT12", "NFMFT_BT11_BT12", "BT11_BT8", "BT12_BT8", "BT11_BT4", "BT12_BT4",
+                          "EMISS4",
+                          "RFMFT_BT11_BT12", "SST_BT12", "SST_BT11",
+                          "ULST"]
+
 
 def remove_files(path: str):
     files_to_delete = os.listdir(path)
     for file_d in files_to_delete:
         os.remove(os.path.join(path, file_d))
 
+
+def get_high_gradient(sst_reynolds, threshold, radius):
+    element_gradient = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * radius + 1, 2 * radius + 1),
+                                                 (radius, radius))
+    sst_reynolds_max = cv2.dilate(sst_reynolds, element_gradient)
+    sst_reynolds_min = cv2.erode(sst_reynolds, element_gradient)
+    return (sst_reynolds_max - sst_reynolds_min) > threshold
+
+
+def ranking_individual_btd(tests_data: dict, test_names: list, files: list):
+    full_test_data = {}
+    unique_test_data = {}
+    unique_valid_test_data = {}
+    true_positive_data = {}
+    false_positive_data = {}
+    u_metric = {}
+    ppv_value = {}
+    sensitivity = {}
+    u_valid_metric = {}
+    sum_true_positives = 0
+    sum_false_positives = 0
+    f = open("Stats_Data_Tiles.dat", "w")
+    fp = open("Stats_Data_Tiles_positives.dat", "w")
+    for index in range(len(files)):
+        file = files[index]
+        BTD_MASK = tests_data["FULL_BTD_MASK"][index, :, :]
+        Validation_MASK = tests_data["Validation"][index, :, :]
+        Original_MASK = tests_data["Original"][index, :, :]
+        legit_mask = ~(np.isnan(tests_data["sst_regression"]) > 0)
+        # BTD
+        true_negative_total_btd = ((legit_mask > 0) & (~(BTD_MASK > 0))) & (
+                (BTD_MASK > 0) == (Validation_MASK > 0))
+        false_negative_btd = ((legit_mask > 0) & (~(BTD_MASK > 0))) & (
+                (BTD_MASK > 0) != (Validation_MASK > 0))
+        true_positives_btd = (BTD_MASK > 0) & (
+                (BTD_MASK > 0) == (Validation_MASK > 0))
+        false_positives_btd= (BTD_MASK > 0) & (
+                (BTD_MASK > 0) != (Validation_MASK > 0))
+        # ACSPO
+        true_negative_total_acspo = ((legit_mask > 0) & (~(Original_MASK > 0))) & (
+                (Original_MASK > 0) == (Validation_MASK > 0))
+        false_negative_total_acspo = ((legit_mask > 0) & (~(Original_MASK > 0))) & (
+                (Original_MASK > 0) != (Validation_MASK > 0))
+        true_positives_acspo= (Original_MASK > 0) & (
+                (Original_MASK > 0) == (Validation_MASK > 0))
+        false_positives_acspo = (Original_MASK > 0) & (
+                (Original_MASK > 0) != (Validation_MASK > 0))
+        f.write(file)
+        f.write("\n")
+        output_to_file = ["true_negative_total_btd", np.sum(true_negative_total_btd), "false_negative_total_btd",
+                          np.sum(false_negative_btd)]
+        f.writelines(str(output_to_file))
+        f.write("\n")
+        output_to_file = ["true_negative_total_acspo", np.sum(true_negative_total_acspo), "false_negative_total_acspo",
+                          np.sum(false_negative_total_acspo)]
+        f.writelines(str(output_to_file))
+        f.write("\n")
+        f.write("\n")
+
+
+
+        fp.write(file)
+        fp.write("\n")
+        output_to_file = ["true_positives_btd", np.sum(true_positives_btd), "false_positives_btd",
+                          np.sum(false_positives_btd)]
+        fp.writelines(str(output_to_file))
+        fp.write("\n")
+        output_to_file = ["true_positives_acspo", np.sum(true_positives_acspo), "false_positives_acspo",
+                          np.sum(false_positives_acspo)]
+        fp.writelines(str(output_to_file))
+        fp.write("\n")
+        fp.write("\n")
+    f.close()
+    fp.close()
 
 def rankings_of_btd(tests_data: dict, test_names: list):
     full_test_data = {}
@@ -88,7 +167,7 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     print("ppv_total", ppv_total, "fdr_total", fdr_total, "npv_total", npv_total, "for_total", for_total)
     output_to_file = str(
         ["ppv_total", ppv_total, "fdr_total", fdr_total, "npv_total", npv_total, "for_total", for_total])
-    f.write("BTDs, DCT MASK")
+    f.write("\nBTDs, DCT MASK\n")
     f.writelines(str(output_to_file))
     print("CONFUSION BTD:")
     print("true_positives_total", np.sum(true_positives_total))
@@ -96,17 +175,11 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     print("true_negative_total", np.sum(true_negative_total))
     print("false_negative_total", np.sum(false_negative_total))
 
-
-
-
     # for day
     true_positives_day = (true_positives_total > 0) & (tests_data["solzen"] > 0)
     false_positives_day = (false_positives_total > 0) & (tests_data["solzen"] > 0)
     true_negative_day = (true_negative_total > 0) & (tests_data["solzen"] > 0)
     false_negative_day = (false_negative_total > 0) & (tests_data["solzen"] > 0)
-
-
-
 
     print("true_positives_day", np.sum(true_positives_day))
     print("false_positives_day", np.sum(false_positives_day))
@@ -118,13 +191,13 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     npv_total = (np.sum(true_negative_day)) / (np.sum(true_negative_day) + np.sum(false_negative_day)) * 100.0
     for_total = (np.sum(false_negative_day)) / (np.sum(true_negative_day) + np.sum(false_negative_day)) * 100.0
 
-    print("ppv_total_day", ppv_total, "fdr_total_day", fdr_total, "npv_total_day", npv_total, "for_total_day", for_total)
-
+    print("ppv_total_day", ppv_total, "fdr_total_day", fdr_total, "npv_total_day", npv_total, "for_total_day",
+          for_total)
 
     # for night
 
     true_positives_night = (true_positives_total > 0) & ~(tests_data["solzen"] > 0)
-    false_positives_night  = (false_positives_total > 0) & ~(tests_data["solzen"] > 0)
+    false_positives_night = (false_positives_total > 0) & ~(tests_data["solzen"] > 0)
     true_negative_night = (true_negative_total > 0) & ~(tests_data["solzen"] > 0)
     false_negative_night = (false_negative_total > 0) & ~(tests_data["solzen"] > 0)
 
@@ -133,28 +206,13 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     print("true_negative_night", np.sum(true_negative_night))
     print("false_negative_night", np.sum(false_negative_night))
 
-
     ppv_total = (np.sum(true_positives_night)) / (np.sum(true_positives_night) + np.sum(false_positives_night)) * 100.0
     fdr_total = (np.sum(false_positives_night)) / (np.sum(true_positives_night) + np.sum(false_positives_night)) * 100.0
     npv_total = (np.sum(true_negative_night)) / (np.sum(true_negative_night) + np.sum(false_negative_night)) * 100.0
     for_total = (np.sum(false_negative_night)) / (np.sum(true_negative_night) + np.sum(false_negative_night)) * 100.0
 
-    print("ppv_total_night", ppv_total, "fdr_total_night", fdr_total, "npv_total_night", npv_total, "for_total_night", for_total)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    print("ppv_total_night", ppv_total, "fdr_total_night", fdr_total, "npv_total_night", npv_total, "for_total_night",
+          for_total)
 
     # old mask ACSPO
 
@@ -182,15 +240,11 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     print("true_negative_total", np.sum(true_negative_total))
     print("false_negative_total", np.sum(false_negative_total))
 
-
     # for day
     true_positives_day = (true_positives_total > 0) & (tests_data["solzen"] > 0)
     false_positives_day = (false_positives_total > 0) & (tests_data["solzen"] > 0)
     true_negative_day = (true_negative_total > 0) & (tests_data["solzen"] > 0)
     false_negative_day = (false_negative_total > 0) & (tests_data["solzen"] > 0)
-
-
-
 
     print("true_positives_day", np.sum(true_positives_day))
     print("false_positives_day", np.sum(false_positives_day))
@@ -202,13 +256,13 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     npv_total = (np.sum(true_negative_day)) / (np.sum(true_negative_day) + np.sum(false_negative_day)) * 100.0
     for_total = (np.sum(false_negative_day)) / (np.sum(true_negative_day) + np.sum(false_negative_day)) * 100.0
 
-    print("ppv_total_day", ppv_total, "fdr_total_day", fdr_total, "npv_total_day", npv_total, "for_total_day", for_total)
-
+    print("ppv_total_day", ppv_total, "fdr_total_day", fdr_total, "npv_total_day", npv_total, "for_total_day",
+          for_total)
 
     # for night
 
     true_positives_night = (true_positives_total > 0) & ~(tests_data["solzen"] > 0)
-    false_positives_night  = (false_positives_total > 0) & ~(tests_data["solzen"] > 0)
+    false_positives_night = (false_positives_total > 0) & ~(tests_data["solzen"] > 0)
     true_negative_night = (true_negative_total > 0) & ~(tests_data["solzen"] > 0)
     false_negative_night = (false_negative_total > 0) & ~(tests_data["solzen"] > 0)
 
@@ -217,13 +271,13 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     print("true_negative_night", np.sum(true_negative_night))
     print("false_negative_night", np.sum(false_negative_night))
 
-
     ppv_total = (np.sum(true_positives_night)) / (np.sum(true_positives_night) + np.sum(false_positives_night)) * 100.0
     fdr_total = (np.sum(false_positives_night)) / (np.sum(true_positives_night) + np.sum(false_positives_night)) * 100.0
     npv_total = (np.sum(true_negative_night)) / (np.sum(true_negative_night) + np.sum(false_negative_night)) * 100.0
     for_total = (np.sum(false_negative_night)) / (np.sum(true_negative_night) + np.sum(false_negative_night)) * 100.0
 
-    print("ppv_total_night", ppv_total, "fdr_total_night", fdr_total, "npv_total_night", npv_total, "for_total_night", for_total)
+    print("ppv_total_night", ppv_total, "fdr_total_night", fdr_total, "npv_total_night", npv_total, "for_total_night",
+          for_total)
 
 
 def pearson(image1: np.array, image2: np.array, rad: int):
@@ -382,6 +436,7 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         original_mask = np.array(data["original_mask"][:]).astype(np.bool)
         glint = np.array(data["glint"][:]).astype(np.bool)
         data.close()
+
         # Radiance
         rad_rat_observed = Plank_function(brightness_temp_ch7) / Plank_function(brightness_temp_ch14)
         rad_rat_clear_Sky = Plank_function(brightness_temp_crtm_ch7) / Plank_function(brightness_temp_crtm_ch14)
@@ -391,10 +446,7 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         dt_pfmft_rtm = brightness_temp_crtm_ch14 - brightness_temp_crtm_ch15
         # PFMFT_BT11_BT12
         if "PFMFT_BT11_BT12" in test_names:
-            PFMFT_BT11_BT12 = dt_pfmft - dt_pfmft_rtm * (brightness_temp_ch14 - 260) / (
-                (brightness_temp_crtm_ch14 - 260))
-            tests_data["PFMFT_BT11_BT12"][i, :, :] = np.where(brightness_temp_crtm_ch14 > 265, PFMFT_BT11_BT12,
-                                                              dt_pfmft)
+            tests_data["PFMFT_BT11_BT12"][i, :, :] = dt_pfmft - dt_pfmft_rtm
         # NFMFT_BT11_BT12
         if "NFMFT_BT11_BT12" in test_names:
             tests_data["NFMFT_BT11_BT12"][i, :, :] = dt_pfmft_rtm - dt_pfmft
@@ -418,22 +470,26 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         if "BT11_BT4" in test_names:
             dt_bt11_bt_4 = brightness_temp_ch14 - brightness_temp_ch7  # 11 nm - 4 nm
             dt_bt11_bt_4_crtm = brightness_temp_crtm_ch14 - brightness_temp_crtm_ch7
+            dt_bt11_bt_4[solze_mask_night] = np.NaN
+            dt_bt11_bt_4_crtm[solze_mask_night] = np.NaN
             tests_data["BT11_BT4"][i, :, :] = (dt_bt11_bt_4_crtm - dt_bt11_bt_4)
         # BT 11 BT 4
         if "BT12_BT4" in test_names:
             dt_bt12_bt_4 = brightness_temp_ch15 - brightness_temp_ch7  # 12 nm - 4 nm
             dt_bt12_bt_4_crtm = brightness_temp_crtm_ch15 - brightness_temp_crtm_ch7
-            tests_data["BT12_BT4"][i, :, :] = (dt_bt12_bt_4_crtm - dt_bt12_bt_4)
-        # BT12_4_NIGHT
-        if "BT12_BT4_NIGHT" in test_names:
-            dt_bt12_bt_4 = brightness_temp_ch15 - brightness_temp_ch7  # 12 nm - 4 nm
             dt_bt12_bt_4[solze_mask_night] = np.NaN
-            tests_data["BT12_BT4_NIGHT"][i, :, :] = -dt_bt12_bt_4
-        # BT12_4_DAY
-        if "BT12_BT4_DAY" in test_names:
-            dt_bt12_bt_4 = brightness_temp_ch15 - brightness_temp_ch7  # 12 nm - 4 nm
-            dt_bt12_bt_4[~solze_mask_night] = np.NaN
-            tests_data["BT12_BT4_DAY"][i, :, :] = -dt_bt12_bt_4
+            dt_bt12_bt_4_crtm[solze_mask_night] = np.NaN
+            tests_data["BT12_BT4"][i, :, :] = (dt_bt12_bt_4_crtm - dt_bt12_bt_4)
+        # # BT12_4_NIGHT
+        # if "BT12_BT4_NIGHT" in test_names:
+        #     dt_bt12_bt_4 = brightness_temp_ch15 - brightness_temp_ch7  # 12 nm - 4 nm
+        #     dt_bt12_bt_4[solze_mask_night] = np.NaN
+        #     tests_data["BT12_BT4_NIGHT"][i, :, :] = -dt_bt12_bt_4
+        # # BT12_4_DAY
+        # if "BT12_BT4_DAY" in test_names:
+        #     dt_bt12_bt_4 = brightness_temp_ch15 - brightness_temp_ch7  # 12 nm - 4 nm
+        #     dt_bt12_bt_4[~solze_mask_night] = np.NaN
+        #     tests_data["BT12_BT4_DAY"][i, :, :] = -dt_bt12_bt_4
 
         # EMISS4
         if "EMISS4" in test_names:
@@ -454,80 +510,84 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         if "SST_BT12" in test_names:
             tests_data["SST_BT12"][i, :, :] = (
                     (sst_regression - sst_reynolds) - (brightness_temp_ch15 - brightness_temp_crtm_ch15))
-        # SST_DCT
-        if "SST_DCT" in test_names:
-            dct_size = 4
-            tests_data["SST_DCT"][i, :, :] = harmonics_cuts(sst_regression, dct_size)
-        # SST_DCT_MEDIAN
-        if "SST_DCT_MEDIAN" in test_names:
-            dct_size = 4
-            tests_data["SST_DCT_MEDIAN"][i, :, :] = harmonics_cuts_median(sst_regression, dct_size)
         # UNI SST
         if "UNI_SST" in test_names:
             kernel_size = 1
             tests_data["UNI_SST"][i, :, :] = uniformity_test(sst_regression, kernel_size)
-        # LAPLACE
-        if "LAPLACE" in test_names:
-            # convert image
-            dt_sst = sst_regression - sst_reynolds
-            dt_sst[dt_sst > 2] = 2
-            dt_sst[dt_sst < -2] = -2
-            max_val = np.nanmax(dt_sst)
-            min_val = np.nanmin(dt_sst)
-            dt_sst[np.isnan(dt_sst)] = min_val
-            image = (dt_sst - min_val) / (max_val - min_val) * 255
-            image = image.astype(np.uint8)
-            smooth = cv2.fastNlMeansDenoising(src=image)
-            tests_data["LAPLACE"][i, :, :] = np.abs(smooth - image)
-            image_full = np.concatenate([smooth, image])
-            plt.imshow(image_full, interpolation="none", cmap=my_cmap)
-            plt.show()
-        # UNI SST
-        if "UNI_SST2" in test_names:
-            kernel_size = 1
-            tests_data["UNI_SST2"][i, :, :] = uniformity_test_slice(sst_regression, kernel_size,
-                                                                    tests_data["FULL_BTD_MASK"][i, :, :])
-        # UNI ULST
-        if "UNI_ULST" in test_names:
-            kernel_size = 1
-            ulst = rad_rat_clear_Sky - rad_rat_observed
-            ulst[solze_mask_night] = np.NaN
-            tests_data["UNI_ULST"][i, :, :] = uniformity_test(ulst, kernel_size)
+
+        # # SST_DCT
+        # if "SST_DCT" in test_names:
+        #     dct_size = 4
+        #     tests_data["SST_DCT"][i, :, :] = harmonics_cuts(sst_regression, dct_size)
+        # # SST_DCT_MEDIAN
+        # if "SST_DCT_MEDIAN" in test_names:
+        #     dct_size = 4
+        #     tests_data["SST_DCT_MEDIAN"][i, :, :] = harmonics_cuts_median(sst_regression, dct_size)
+        # # LAPLACE
+        # if "LAPLACE" in test_names:
+        #     # convert image
+        #     dt_sst = sst_regression - sst_reynolds
+        #     dt_sst[dt_sst > 2] = 2
+        #     dt_sst[dt_sst < -2] = -2
+        #     max_val = np.nanmax(dt_sst)
+        #     min_val = np.nanmin(dt_sst)
+        #     dt_sst[np.isnan(dt_sst)] = min_val
+        #     image = (dt_sst - min_val) / (max_val - min_val) * 255
+        #     image = image.astype(np.uint8)
+        #     smooth = cv2.fastNlMeansDenoising(src=image)
+        #     tests_data["LAPLACE"][i, :, :] = np.abs(smooth - image)
+        #     image_full = np.concatenate([smooth, image])
+        #     plt.imshow(image_full, interpolation="none", cmap=my_cmap)
+        #     plt.show()
+        # # UNI SST
+        # if "UNI_SST2" in test_names:
+        #     kernel_size = 1
+        #     tests_data["UNI_SST2"][i, :, :] = uniformity_test_slice(sst_regression, kernel_size,
+        #                                                             tests_data["FULL_BTD_MASK"][i, :, :])
+        # # UNI ULST
+        # if "UNI_ULST" in test_names:
+        #     kernel_size = 1
+        #     ulst = rad_rat_clear_Sky - rad_rat_observed
+        #     ulst[solze_mask_night] = np.NaN
+        #     tests_data["UNI_ULST"][i, :, :] = uniformity_test(ulst, kernel_size)
+
         # RGCT
         if "RGCT" in test_names:
             tests_data["RGCT"][i, :, :] = individual >> 4 & 1
-        # CROSS_CORR
-        if "CROSS_CORR" in test_names:
-            tests_data["CROSS_CORR"][i, :, :] = individual >> 7 & 1
+
+        # # CROSS_CORR
+        # if "CROSS_CORR" in test_names:
+        #     tests_data["CROSS_CORR"][i, :, :] = individual >> 7 & 1
         # UNI_EMISS4
-        if "UNI_EMISS4" in test_names:
-            kernel_size = 1
-            emissivity = (rad_rat_observed - rad_rat_clear_Sky) / rad_rat_clear_Sky
-            emissivity[glint > 0] = np.NaN
-            tests_data["UNI_EMISS4"][i, :, :] = uniformity_test(emissivity, kernel_size)
-        # PEARSON
-        if "PEARSON" in test_names:
-            kernel_size = 7
-            correlation = pearson(sst_regression - atm_diff, atm_diff, kernel_size)
-            correlation[correlation > 1.0] = 1.0
-            correlation[correlation < -1.0] = -1.0
-            tests_data["PEARSON"][i, :, :] = correlation
-        # EMISS4_GLINT
-        if "EMISS4_GLINT" in test_names:
-            dt_bt7_bt7_crtm = brightness_temp_crtm_ch7 - brightness_temp_ch7
-            dt_bt7_bt7_crtm[glint == 0] = np.NaN
-            tests_data["EMISS4_GLINT"][i, :, :] = dt_bt7_bt7_crtm
+        # if "UNI_EMISS4" in test_names:
+        #     kernel_size = 1
+        #     emissivity = (rad_rat_observed - rad_rat_clear_Sky) / rad_rat_clear_Sky
+        #     emissivity[glint > 0] = np.NaN
+        #     tests_data["UNI_EMISS4"][i, :, :] = uniformity_test(emissivity, kernel_size)
+        # # PEARSON
+        # if "PEARSON" in test_names:
+        #     kernel_size = 7
+        #     correlation = pearson(sst_regression - atm_diff, atm_diff, kernel_size)
+        #     correlation[correlation > 1.0] = 1.0
+        #     correlation[correlation < -1.0] = -1.0
+        #     tests_data["PEARSON"][i, :, :] = correlation
+        # # EMISS4_GLINT
+        # if "EMISS4_GLINT" in test_names:
+        #     dt_bt7_bt7_crtm = brightness_temp_crtm_ch7 - brightness_temp_ch7
+        #     dt_bt7_bt7_crtm[glint == 0] = np.NaN
+        #     tests_data["EMISS4_GLINT"][i, :, :] = dt_bt7_bt7_crtm
 
-        if "WATER_VAPOR_TEST" in test_names:
-            print(date, local_rows, local_cols)
+        # if "WATER_VAPOR_TEST" in test_names:
+        #     print(date, local_rows, local_cols)
+        #
+        #     bt_ch9 = dict_BTS_9[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
+        #     tests_data["WATER_VAPOR_TEST"][i, :, :] = correlation_coeff(bt_ch9, brightness_temp_ch14, 2)
+        # if "WATER_VAPOR_TEST_10" in test_names:
+        #     print(date, local_rows, local_cols)
+        #
+        #     bt_ch10 = dict_BTS_10[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
+        #     tests_data["WATER_VAPOR_TEST_10"][i, :, :] = correlation_coeff(bt_ch10, brightness_temp_ch14, 2)
 
-            bt_ch9 = dict_BTS_9[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
-            tests_data["WATER_VAPOR_TEST"][i, :, :] = correlation_coeff(bt_ch9, brightness_temp_ch14, 2)
-        if "WATER_VAPOR_TEST_10" in test_names:
-            print(date, local_rows, local_cols)
-
-            bt_ch10 = dict_BTS_10[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
-            tests_data["WATER_VAPOR_TEST_10"][i, :, :] = correlation_coeff(bt_ch10, brightness_temp_ch14, 2)
         # validation mask
         tests_data["Validation"][i, :, :] = validation_mask
         # individual mask
@@ -540,7 +600,7 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         # static mask
         tests_data["Static"][i, :, :] = static_mask
         # adaptive mask
-        tests_data["Adaptive"][i, :, :] = pure_adaptive
+        tests_data["Adaptive"][i, :, :] = adaptive_mask
         # Individual mask
         tests_data["Individual"][i, :, :] = static_mask | adaptive_mask | rgct_mask | uniformity_mask | cross_corr_mask
         # original mask
@@ -549,6 +609,10 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         tests_data["delta_sst"][i, :, :] = (sst_regression - sst_reynolds)
         # solzen
         tests_data["solzen"][i, :, :] = solze_mask_night
+        # sst_reynolds
+        tests_data["sst_reynolds"][i, :, :] = sst_reynolds
+        # sst_regression
+        tests_data["sst_regression"][i, :, :] = sst_regression
     return tests_data
 
 
@@ -556,7 +620,7 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
                       show_other=True):
     n_figures = len(test_names) + 1
     if n_tests > 0:
-        n_figures = n_tests
+        n_figures = n_tests + 1
     n_col = 6
     if ~show_other:
         n_col = 3
@@ -572,14 +636,14 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         mask_BTD = tests_data["FULL_BTD_MASK"][i, :, :]
         Original = tests_data["Original"][i, :, :]
         Validation = tests_data["Validation"][i, :, :]
-        nan_mask = np.isnan(tests_data["delta_sst"][i, :, :])
+        nan_mask = np.isnan(tests_data["sst_regression"][i, :, :])
         delta_sst = tests_data["delta_sst"][i, :, :]
         delta_sst[delta_sst > 2.0] = 2.0
         delta_sst[delta_sst < -2.0] = -2.0
         # plotting the BTDs mask
         fig.add_subplot(n_figures, n_col, 1)
         to_show = np.where(mask_BTD > 0, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
+        to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
         plt.title("BTD_MASK", fontsize=font_size)
         cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
@@ -589,7 +653,7 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         # plotting the Validation mask
         fig.add_subplot(n_figures, n_col, 2)
         to_show = np.where(Validation > 0, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
+        to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
         plt.title("Validation", fontsize=font_size)
         cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
@@ -599,7 +663,7 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         # plotting the Original mask
         fig.add_subplot(n_figures, n_col, 3)
         to_show = np.where(Original > 0, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
+        to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
         plt.title("Original", fontsize=font_size)
         cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
@@ -663,9 +727,9 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         plt.close(fig)
 
 
-def output_tiles_Warm(files, tests_data, test_names, thresholds, output_folder):
-    n_figures = 1
-    n_col = 6
+def output_tiles_adaptive(files, tests_data, test_names, output_folder):
+    n_figures = len(test_names)
+    n_col = 2
     font_size = 10
     label_size = 10
     map_cloud = deepcopy(my_cmap)
@@ -674,76 +738,107 @@ def output_tiles_Warm(files, tests_data, test_names, thresholds, output_folder):
         file = files[i]
         print(file)
         output_path = output_folder + file + ".jpg"
-        fig = plt.figure(figsize=(20, 10))
-        mask_BTD = tests_data["FULL_BTD_MASK"][i, :, :]
-        Original = tests_data["Original"][i, :, :]
-        Validation = tests_data["Validation"][i, :, :]
-        nan_mask = np.isnan(tests_data["delta_sst"][i, :, :])
-        delta_sst = tests_data["delta_sst"][i, :, :]
-        total_mask = tests_data["Individual"][i, :, :]
-        delta_sst[delta_sst > 2.0] = 2.0
-        delta_sst[delta_sst < -2.0] = -2.0
-        # plotting the BTDs mask
-        fig.add_subplot(n_figures, n_col, 1)
-        to_show = np.where(((mask_BTD > 0) & (delta_sst > 0.0)) | (total_mask > 0), 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("BTD_MASK_WARM", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
-        # plotting the Validation mask
-        fig.add_subplot(n_figures, n_col, 2)
-        to_show = np.where(Validation > 0, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("Validation", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
-        # plotting the Original mask
-        fig.add_subplot(n_figures, n_col, 3)
-        to_show = np.where(Original > 0, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("Original", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
-        # plotting the Static Original mask
-        fig.add_subplot(n_figures, n_col, 4)
-        to_show = np.where(delta_sst < -1.8, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("Static Test,\n original threshold = -1.8 K", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
-        # plotting the Adaptive Original mask
-        fig.add_subplot(n_figures, n_col, 5)
-        mask_adaptive_static = (tests_data["Adaptive"][i, :, :] > 0) | (tests_data["Static"][i, :, :] > 0)
-        to_show = np.where(mask_adaptive_static, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("Static and Adaptive Test,Original", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
-        # plotting the Static  mask, Different Threshold
-        fig.add_subplot(n_figures, n_col, 6)
-        to_show = np.where(delta_sst < -5, 100.0, delta_sst)
-        to_show[nan_mask] = np.NaN
-        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("Static Test,\n  threshold = -5 K", fontsize=font_size)
-        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-        cbar3.ax.tick_params(labelsize=label_size)
-        plt.xticks([])
-        plt.yticks([])
+        fig = plt.figure(figsize=(10, 5 * (len(test_names) + 1)))
+        i_fig = 1
+        for test_name in test_names:
+            adaptive_mask = tests_data[test_name + "_adaptive"][i, :, :]
+            static_mask = tests_data[test_name + "_static"][i, :, :]
+            nan_mask = np.isnan(tests_data["delta_sst"][i, :, :])
+            delta_sst = tests_data["delta_sst"][i, :, :]
+            delta_sst[delta_sst > 2.0] = 2.0
+            delta_sst[delta_sst < -2.0] = -2.0
+            to_show = np.where((static_mask > 0), 100.0, delta_sst)
+            to_show[nan_mask] = np.NaN
+            fig.add_subplot(n_figures, n_col, i_fig)
+            plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+            plt.title("Static_{}".format(test_name), fontsize=font_size)
+            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+            cbar3.ax.tick_params(labelsize=label_size)
+            plt.xticks([])
+            plt.yticks([])
+            # add adaptive
+            i_fig = i_fig + 1
+            fig.add_subplot(n_figures, n_col, i_fig)
+            to_show_2 = np.where((adaptive_mask > 0) | (static_mask > 0), 100.0, delta_sst)
+            print("adaptive_mask_impact", np.sum((adaptive_mask > 0)), np.sum(static_mask))
+            to_show_2[nan_mask] = np.NaN
+            fig.add_subplot(n_figures, n_col, i_fig)
+            plt.imshow(to_show_2, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+            plt.title("Adaptive_{}".format(test_name), fontsize=font_size)
+            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+            cbar3.ax.tick_params(labelsize=label_size)
+            plt.xticks([])
+            plt.yticks([])
+            i_fig = i_fig + 1
+        # mask_BTD = tests_data["FULL_BTD_MASK"][i, :, :]
+        # Original = tests_data["Original"][i, :, :]
+        # Validation = tests_data["Validation"][i, :, :]
+        # nan_mask = np.isnan(tests_data["delta_sst"][i, :, :])
+        # delta_sst = tests_data["delta_sst"][i, :, :]
+        # total_mask = tests_data["Individual"][i, :, :]
+        # delta_sst[delta_sst > 2.0] = 2.0
+        # delta_sst[delta_sst < -2.0] = -2.0
+        # # plotting the BTDs mask
+        # fig.add_subplot(n_figures, n_col, 1)
+        # to_show = np.where(((mask_BTD > 0) & (delta_sst > 0.0)) | (total_mask > 0), 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("BTD_MASK_WARM", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
+        # # plotting the Validation mask
+        # fig.add_subplot(n_figures, n_col, 2)
+        # to_show = np.where(Validation > 0, 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("Validation", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
+        # # plotting the Original mask
+        # fig.add_subplot(n_figures, n_col, 3)
+        # to_show = np.where(Original > 0, 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("Original", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
+        # # plotting the Static Original mask
+        # fig.add_subplot(n_figures, n_col, 4)
+        # to_show = np.where(delta_sst < -1.8, 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("Static Test,\n original threshold = -1.8 K", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
+        # # plotting the Adaptive Original mask
+        # fig.add_subplot(n_figures, n_col, 5)
+        # mask_adaptive_static = (tests_data["Adaptive"][i, :, :] > 0) | (tests_data["Static"][i, :, :] > 0)
+        # to_show = np.where(mask_adaptive_static, 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("Static and Adaptive Test,Original", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
+        # # plotting the Static  mask, Different Threshold
+        # fig.add_subplot(n_figures, n_col, 6)
+        # to_show = np.where(delta_sst < -5, 100.0, delta_sst)
+        # to_show[nan_mask] = np.NaN
+        # plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        # plt.title("Static Test,\n  threshold = -5 K", fontsize=font_size)
+        # cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        # cbar3.ax.tick_params(labelsize=label_size)
+        # plt.xticks([])
+        # plt.yticks([])
 
         # i_fig = n_col + 1
         # for test_name in test_names:
