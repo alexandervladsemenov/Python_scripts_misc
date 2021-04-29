@@ -11,11 +11,12 @@ from copy import deepcopy
 from algorithm import get_BTS, dict_BTS_9, dict_BTS_10
 from scipy.stats import pearsonr
 from scipy import signal
+from adaptive_test import adaptive_test
 
 temperature_flags_list = ["PFMFT_BT11_BT12", "NFMFT_BT11_BT12", "BT11_BT8", "BT12_BT8", "BT11_BT4", "BT12_BT4",
-                          "EMISS4",
+                          "EMISS4", "WATER_VAPOR_TEST","RTCT", "BT11STD",
                           "RFMFT_BT11_BT12", "SST_BT12", "SST_BT11",
-                          "ULST"]
+                          "ULST","ULST_COLD"]
 
 
 def remove_files(path: str):
@@ -59,14 +60,14 @@ def ranking_individual_btd(tests_data: dict, test_names: list, files: list):
                 (BTD_MASK > 0) != (Validation_MASK > 0))
         true_positives_btd = (BTD_MASK > 0) & (
                 (BTD_MASK > 0) == (Validation_MASK > 0))
-        false_positives_btd= (BTD_MASK > 0) & (
+        false_positives_btd = (BTD_MASK > 0) & (
                 (BTD_MASK > 0) != (Validation_MASK > 0))
         # ACSPO
         true_negative_total_acspo = ((legit_mask > 0) & (~(Original_MASK > 0))) & (
                 (Original_MASK > 0) == (Validation_MASK > 0))
         false_negative_total_acspo = ((legit_mask > 0) & (~(Original_MASK > 0))) & (
                 (Original_MASK > 0) != (Validation_MASK > 0))
-        true_positives_acspo= (Original_MASK > 0) & (
+        true_positives_acspo = (Original_MASK > 0) & (
                 (Original_MASK > 0) == (Validation_MASK > 0))
         false_positives_acspo = (Original_MASK > 0) & (
                 (Original_MASK > 0) != (Validation_MASK > 0))
@@ -82,8 +83,6 @@ def ranking_individual_btd(tests_data: dict, test_names: list, files: list):
         f.write("\n")
         f.write("\n")
 
-
-
         fp.write(file)
         fp.write("\n")
         output_to_file = ["true_positives_btd", np.sum(true_positives_btd), "false_positives_btd",
@@ -98,6 +97,7 @@ def ranking_individual_btd(tests_data: dict, test_names: list, files: list):
     f.close()
     fp.close()
 
+
 def rankings_of_btd(tests_data: dict, test_names: list):
     full_test_data = {}
     unique_test_data = {}
@@ -111,7 +111,7 @@ def rankings_of_btd(tests_data: dict, test_names: list):
     sum_true_positives = 0
     sum_false_positives = 0
     for test_name in test_names:
-        full_test_data[test_name] = (tests_data[test_name + "_static"] > 0) | (tests_data[test_name + "_adaptive"] > 0)
+        full_test_data[test_name] = (tests_data[test_name + "_static"] > 0)
     for test_name in test_names:
         # copy all the tests
         test_names_excluded = deepcopy(test_names)
@@ -514,7 +514,19 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         if "UNI_SST" in test_names:
             kernel_size = 1
             tests_data["UNI_SST"][i, :, :] = uniformity_test(sst_regression, kernel_size)
-
+        # RTCT
+        if "RTCT" in test_names:
+            radius = 1
+            element_gradient = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * radius + 1, 2 * radius + 1),
+                                                         (radius, radius))
+            brightness_temp_ch14_max = cv2.dilate(brightness_temp_ch14, element_gradient)
+            tests_data["RTCT"][i, :, :] = brightness_temp_ch14_max - brightness_temp_ch14
+        if "BT11STD" in test_names:
+            radius = 1
+            ksize = 2 *radius + 1
+            image_diff_mean = cv2.blur(brightness_temp_ch14, (ksize, ksize))
+            image_diff_square_mean = cv2.blur(brightness_temp_ch14**2, (ksize, ksize))
+            tests_data["BT11STD"][i, :, :] = image_diff_square_mean - image_diff_mean ** 2
         # # SST_DCT
         # if "SST_DCT" in test_names:
         #     dct_size = 4
@@ -577,11 +589,11 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         #     dt_bt7_bt7_crtm[glint == 0] = np.NaN
         #     tests_data["EMISS4_GLINT"][i, :, :] = dt_bt7_bt7_crtm
 
-        # if "WATER_VAPOR_TEST" in test_names:
-        #     print(date, local_rows, local_cols)
-        #
-        #     bt_ch9 = dict_BTS_9[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
-        #     tests_data["WATER_VAPOR_TEST"][i, :, :] = correlation_coeff(bt_ch9, brightness_temp_ch14, 2)
+        if "WATER_VAPOR_TEST" in test_names:
+            print(date, local_rows, local_cols)
+
+            bt_ch9 = dict_BTS_9[date][local_rows:local_rows + 256, local_cols:local_cols + 256]
+            tests_data["WATER_VAPOR_TEST"][i, :, :] = correlation_coeff(bt_ch9, brightness_temp_ch14, 2)
         # if "WATER_VAPOR_TEST_10" in test_names:
         #     print(date, local_rows, local_cols)
         #
@@ -613,6 +625,8 @@ def compute_BTDs_threholds(files: list, path: str, tests_data: dict, test_names:
         tests_data["sst_reynolds"][i, :, :] = sst_reynolds
         # sst_regression
         tests_data["sst_regression"][i, :, :] = sst_regression
+        # not_sst_mask
+        tests_data["non_sst_mask"][i, :, :] = rgct_mask | uniformity_mask | cross_corr_mask
     return tests_data
 
 
@@ -621,10 +635,13 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
     n_figures = len(test_names) + 1
     if n_tests > 0:
         n_figures = n_tests + 1
+    else:
+        n_figures = 1
+    n_figures = 1
     n_col = 6
     if ~show_other:
         n_col = 3
-    font_size = 12
+    font_size = 18
     label_size = 12
     map_cloud = deepcopy(my_cmap)
     map_cloud.set_over((128 / 255.0, 128 / 255.0, 128 / 255.0))
@@ -632,7 +649,7 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         file = files[i]
         print(file)
         output_path = output_folder + file + ".jpg"
-        fig = plt.figure(figsize=(nx, ny))
+        fig = plt.figure(figsize=(30, 10))
         mask_BTD = tests_data["FULL_BTD_MASK"][i, :, :]
         Original = tests_data["Original"][i, :, :]
         Validation = tests_data["Validation"][i, :, :]
@@ -641,17 +658,17 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         delta_sst[delta_sst > 2.0] = 2.0
         delta_sst[delta_sst < -2.0] = -2.0
         # plotting the BTDs mask
-        fig.add_subplot(n_figures, n_col, 1)
+        fig.add_subplot(1, 3, 1)
         to_show = np.where(mask_BTD > 0, 100.0, delta_sst)
         to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-        plt.title("BTD_MASK", fontsize=font_size)
+        plt.title("ACSPO_Modified + BTDs", fontsize=font_size)
         cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
         cbar3.ax.tick_params(labelsize=label_size)
         plt.xticks([])
         plt.yticks([])
         # plotting the Validation mask
-        fig.add_subplot(n_figures, n_col, 2)
+        fig.add_subplot(1, 3, 2)
         to_show = np.where(Validation > 0, 100.0, delta_sst)
         to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
@@ -661,7 +678,7 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         plt.xticks([])
         plt.yticks([])
         # plotting the Original mask
-        fig.add_subplot(n_figures, n_col, 3)
+        fig.add_subplot(1, 3, 3)
         to_show = np.where(Original > 0, 100.0, delta_sst)
         to_show[nan_mask > 0] = np.NaN
         plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
@@ -670,58 +687,58 @@ def output_tiles_BTDS(files, tests_data, test_names, thresholds, output_folder, 
         cbar3.ax.tick_params(labelsize=label_size)
         plt.xticks([])
         plt.yticks([])
-        if show_other:
-            # plotting the Static Original mask
-            fig.add_subplot(n_figures, n_col, 4)
-            to_show = np.where(delta_sst < -1.8, 100.0, delta_sst)
-            to_show[nan_mask] = np.NaN
-            plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-            plt.title("Static Test,\n original threshold = -1.8 K", fontsize=font_size)
-            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-            cbar3.ax.tick_params(labelsize=label_size)
-            plt.xticks([])
-            plt.yticks([])
-            # plotting the Adaptive Original mask
-            fig.add_subplot(n_figures, n_col, 5)
-            mask_adaptive_static = (tests_data["Adaptive"][i, :, :] > 0) | (tests_data["Static"][i, :, :] > 0)
-            to_show = np.where(mask_adaptive_static, 100.0, delta_sst)
-            to_show[nan_mask] = np.NaN
-            plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-            plt.title("Static and Adaptive Test,Original", fontsize=font_size)
-            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-            cbar3.ax.tick_params(labelsize=label_size)
-            plt.xticks([])
-            plt.yticks([])
-            # plotting the Static  mask, Different Threshold
-            fig.add_subplot(n_figures, n_col, 6)
-            to_show = np.where(delta_sst < -5, 100.0, delta_sst)
-            to_show[nan_mask] = np.NaN
-            plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
-            plt.title("Static Test,\n  threshold = -5 K", fontsize=font_size)
-            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-            cbar3.ax.tick_params(labelsize=label_size)
-            plt.xticks([])
-            plt.yticks([])
-
-        i_fig = n_col + 1
-        for test_name in test_names:
-            if i_fig > n_figures * n_col:
-                continue
-            fig.add_subplot(n_figures, n_col, i_fig)
-            adaptive_mask = tests_data[test_name + "_adaptive"][i, :, :] > 0
-            static_mask = tests_data[test_name + "_static"][i, :, :] > 0
-            image = tests_data[test_name][i, :, :]
-            image[np.isnan(image)] = 0.0
-            threshold = thresholds[test_name]
-            to_show = np.where(static_mask | adaptive_mask, 100.0, image)
-            to_show[nan_mask] = np.NaN
-            plt.imshow(to_show, interpolation="none", vmin=0, vmax=threshold, cmap=map_cloud)
-            plt.title(test_name, fontsize=font_size)
-            cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
-            cbar3.ax.tick_params(labelsize=label_size)
-            plt.xticks([])
-            plt.yticks([])
-            i_fig += n_col
+        # if show_other:
+        #     # plotting the Static Original mask
+        #     fig.add_subplot(n_figures, n_col, 4)
+        #     to_show = np.where(delta_sst < -1.8, 100.0, delta_sst)
+        #     to_show[nan_mask] = np.NaN
+        #     plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        #     plt.title("Static Test,\n original threshold = -1.8 K", fontsize=font_size)
+        #     cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        #     cbar3.ax.tick_params(labelsize=label_size)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #     # plotting the Adaptive Original mask
+        #     fig.add_subplot(n_figures, n_col, 5)
+        #     mask_adaptive_static = (tests_data["Adaptive"][i, :, :] > 0) | (tests_data["Static"][i, :, :] > 0)
+        #     to_show = np.where(mask_adaptive_static, 100.0, delta_sst)
+        #     to_show[nan_mask] = np.NaN
+        #     plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        #     plt.title("Static and Adaptive Test,Original", fontsize=font_size)
+        #     cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        #     cbar3.ax.tick_params(labelsize=label_size)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #     # plotting the Static  mask, Different Threshold
+        #     fig.add_subplot(n_figures, n_col, 6)
+        #     to_show = np.where(delta_sst < -5, 100.0, delta_sst)
+        #     to_show[nan_mask] = np.NaN
+        #     plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        #     plt.title("Static Test,\n  threshold = -5 K", fontsize=font_size)
+        #     cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        #     cbar3.ax.tick_params(labelsize=label_size)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #
+        # i_fig = n_col + 1
+        # for test_name in test_names:
+        #     if i_fig > n_figures * n_col:
+        #         continue
+        #     fig.add_subplot(n_figures, n_col, i_fig)
+        #     adaptive_mask = tests_data[test_name + "_adaptive"][i, :, :] > 0
+        #     static_mask = tests_data[test_name + "_static"][i, :, :] > 0
+        #     image = tests_data[test_name][i, :, :]
+        #     image[np.isnan(image)] = 0.0
+        #     threshold = thresholds[test_name]
+        #     to_show = np.where(static_mask | adaptive_mask, 100.0, image)
+        #     to_show[nan_mask] = np.NaN
+        #     plt.imshow(to_show, interpolation="none", vmin=0, vmax=threshold, cmap=map_cloud)
+        #     plt.title(test_name, fontsize=font_size)
+        #     cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        #     cbar3.ax.tick_params(labelsize=label_size)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #     i_fig += n_col
 
         plt.savefig(output_path)
         plt.close(fig)
@@ -860,3 +877,124 @@ def output_tiles_adaptive(files, tests_data, test_names, output_folder):
 
         plt.savefig(output_path)
         plt.close(fig)
+
+
+def draw_a_mask_upon(files, tests_data, masks, output_folder):
+    map_cloud = deepcopy(my_cmap)
+    map_cloud.set_over((128 / 255.0, 128 / 255.0, 128 / 255.0))
+    for i in range(len(files)):
+        file = files[i]
+        output_path = output_folder + file + ".jpg"
+        delta_sst = tests_data["delta_sst"][i, :, :]
+        sst_reynolds = tests_data["sst_reynolds"][i, :, :]
+        mask = ~masks[file]
+
+        nan_mask = np.isnan(tests_data["sst_regression"][i, :, :])
+
+        fig = plt.figure(figsize=(20, 10))
+
+        fig.add_subplot(1, 3, 1)
+        to_show = np.where((mask > 0), 100.0, delta_sst)
+        to_show[nan_mask] = np.NaN
+        plt.imshow(to_show, interpolation="none", vmin=-2, vmax=2, cmap=map_cloud)
+        plt.title("BTD_MASK", fontsize=15)
+        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        cbar3.ax.tick_params(labelsize=15)
+        plt.xticks([])
+        plt.yticks([])
+
+        fig.add_subplot(1, 3, 2)
+        to_show2 = np.where((mask > 0), np.nanmax(sst_reynolds) * 5, sst_reynolds)
+        to_show2[nan_mask] = np.NaN
+        plt.imshow(to_show2, interpolation="none", vmax=np.nanmax(sst_reynolds), cmap=map_cloud)
+        plt.title("BTD_MASK", fontsize=15)
+        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        cbar3.ax.tick_params(labelsize=15)
+        plt.xticks([])
+        plt.yticks([])
+
+        fig.add_subplot(1, 3, 3)
+        to_show3 = sst_reynolds
+        to_show3[nan_mask] = np.NaN
+        plt.imshow(to_show3, interpolation="none", cmap=map_cloud)
+        plt.title("BTD_MASK", fontsize=15)
+        cbar3 = plt.colorbar(fraction=0.046, pad=0.04)
+        cbar3.ax.tick_params(labelsize=15)
+        plt.xticks([])
+        plt.yticks([])
+
+        plt.savefig(output_path)
+        plt.close(fig)
+
+
+def thresholds_cold():
+    thresholds = {}
+    thresholds2 = {}
+    thresholds["PFMFT_BT11_BT12"] = 0.5 # 0.76
+    thresholds["NFMFT_BT11_BT12"] = 0.6 # 0.7
+
+    thresholds["RFMFT_BT11_BT12"] = 0.9
+
+    thresholds["RTCT"] = 1.4 # 1.4
+    thresholds["BT11STD"] = 0.65 # .65
+    thresholds["BT11_BT8"] = 2.1
+    thresholds["BT12_BT8"] = 1.1 # 1.3
+    thresholds["BT11_BT4"] = 4.0
+    thresholds["BT12_BT4"] = 3.0 # 3.5
+
+    thresholds2["BT11_BT8"] = -1.2
+    thresholds2["BT12_BT8"] = -1.2 # -1.3
+    thresholds2["BT11_BT4"] = -3.7
+    thresholds2["BT12_BT4"] = -3.5 # -4.0
+
+    thresholds["SST_BT11"] = 4.5  # 1.3 # 3.7ye
+    thresholds["SST_BT12"] = 4.5  # 1.3 # 3.7
+
+    thresholds["ULST_COLD"] = 0.10 # was 0.06 # second version 0.12 # 0.10
+    thresholds["UNI_SST"] = 0.05
+    thresholds["EMISS4"] = 0.15
+    thresholds["RGCT"] = 0.0
+    return thresholds, thresholds2
+
+
+def get_cold_sst_matrix(tests_data, files, test_names):
+    thresholds, thresholds2 = thresholds_cold()
+    test_for_second_threshold = ["BT11_BT8", "BT12_BT8", "BT11_BT4", "BT12_BT4"]
+    cold_masks = {}
+    cold_mask_by_test = {}
+    rad = -10
+    scale = 9
+    for i in range(len(files)):
+        file = files[i]
+        total_mask = np.zeros((256, 256)) > 1.0
+        cold_mask_by_test[file] = {}
+        for test_name in test_names:
+            threshold = thresholds[test_name]
+            if test_name!="ULST_COLD":
+                image = tests_data[test_name][i, :, :]
+            else:
+                image = tests_data["ULST"][i, :, :]
+            # if test_name == "RTCT":
+            #      rad = 5
+            #      scale = 3
+            # else:
+            #     rad = -5
+            mask = (image > threshold) & (~np.isnan(image))
+            if test_name in temperature_flags_list:
+                mask = (mask & (tests_data["delta_sst"][i, :, :] <= 0))
+                adapt_mask = adaptive_test(image=image, window_size=rad, scale=scale,
+                                           threshold=threshold, mask=mask)
+                mask = mask | adapt_mask
+                if test_name in test_for_second_threshold:
+                    threshold2 = thresholds2[test_name]
+                    mask2 = (image < threshold2) & (~np.isnan(image)) & (tests_data["delta_sst"][i, :, :] <= 0)
+                    adapt_mask2 = adaptive_test(image=image, window_size=rad, scale=scale,
+                                                threshold=threshold2, mask=mask2)
+                    mask2 = mask2 | adapt_mask2
+                    mask = mask2 | mask  # need to separate later
+            total_mask = total_mask | mask
+            cold_mask_by_test[file][test_name] = mask
+
+        cold_masks[file] = total_mask
+
+    return cold_masks , cold_mask_by_test
