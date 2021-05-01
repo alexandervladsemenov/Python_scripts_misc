@@ -137,7 +137,8 @@ except:
 
     # non_sst_mask
     tests_data["non_sst_mask"] = np.empty((len(files), 256, 256))
-
+    # UNIFORM
+    tests_data["UNIFORM"] = np.empty((len(files), 256, 256))
 # add_names = ["UNI_SST", "RGCT", "PFMFT_BT11_BT12", "NFMFT_BT11_BT12", "BT11_BT8", "BT12_BT8", "BT11_BT4", "BT12_BT4",
 #              "EMISS4", "EMISS4_GLINT",
 #              "RFMFT_BT11_BT12", "SST_BT12", "SST_BT11",
@@ -145,13 +146,13 @@ except:
 
 files.sort()
 
-# add_names = ["BT11STD"]
-# for test_name in add_names:
-#     tests_data[test_name] = np.empty((len(files), 256, 256))
+# add_names = ["UNIFORM"]
+# # for test_name in add_names:
+# #     tests_data[test_name] = np.empty((len(files), 256, 256))
 # tests_data = compute_BTDs_threholds(files=files, path=path, tests_data=tests_data, test_names=add_names)
 # save_obj(tests_data, "data")
-
 #
+# #
 # sys.exit()
 
 
@@ -355,8 +356,7 @@ for i in range(len(files)):
     for test_cold_name in test_names_cold:
         tests_data[test_cold_name + "_static"][i, :, :] = (cold_mask_by_test[files[i]][test_cold_name] > 0)  & hmask
     tests_data["ACSPO_mod" + "_static"][i, :, :] = (
-            ((tests_data["Adaptive"][i, :, :] > 0) & (~hmask)) | (non_sst_mask > 0))
-
+            ((tests_data["Adaptive"][i, :, :] > 0) & (~hmask)) | ((non_sst_mask > 0)& (tests_data["RGCT"][i, :, :] == 0) & ((tests_data["UNIFORM"][i, :, :] == 0))))
     tests_data["FULL_BTD_MASK"][i, :, :] = (tests_data["FULL_BTD_MASK"][i, :, :] > 0) | Adaptive | (
             non_sst_mask > 0)
 
