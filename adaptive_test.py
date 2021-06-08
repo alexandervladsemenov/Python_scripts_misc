@@ -19,4 +19,4 @@ def adaptive_test(image: np.array, window_size: int, threshold, scale: float, ma
     image_blurred_square = blur_over_mask(image_square, mask, window_size)
     sigma = image_blurred_square - np.power(image_blurred, 2)
     dt = image - image_blurred
-    return (dt ** 2 < sigma * scale / (threshold ** 2) * pow(image, 2)) & ~mask  # / threshold * (image ** 2)
+    return (dt ** 2 < sigma * scale / (threshold ** 2) * pow(image, 2)) & ~mask
